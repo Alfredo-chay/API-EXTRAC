@@ -89,29 +89,61 @@ def _heuristic_extract_json(text: str) -> str:
     return json.dumps(result, ensure_ascii=False)
 
 def extract_info(text: str, domain: str):
-    prompt = f"""
-Eres un sistema de extracción de información.
+    """
+    Extrae información estructurada del texto usando un LLM.
+    
+    El prompt incluye:
+    - Objetivo claro
+    - Reglas explícitas (no inventar)
+    - Formato de salida (JSON Schema)
+    - Política de aclaración (needs_clarification cuando falta info)
+    
+    Args:
+        text (str): Texto a analizar
+        domain (str): Contexto del texto (universidad, soporte, ventas, etc.)
+    
+    Returns:
+        str: JSON con estructura de extracción
+    """
+    prompt = f"""Eres un sistema de extracción estructurada de información con validación JSON Schema.
 
-REGLAS:
-- NO inventar información
-- Si falta información → needs_clarification = true
-- Si needs_clarification = true → mínimo 2 preguntas
+OBJETIVO:
+Analizar el texto proporcionado y devolver información estructurada en JSON, siguiendo estrictamente el contrato especificado.
 
-Devuelve SOLO JSON con este formato:
+REGLAS CRÍTICAS:
+1. NO inventar información que no esté explícita en el texto
+2. Si falta información crucial → needs_clarification = true
+3. Si needs_clarification = true → OBLIGATORIO generar mínimo 2 preguntas clarificadoras específicas
+4. Si el texto es claro → needs_clarification = false y clarifying_questions = []
+5. confidence debe reflejar qué tan seguros estamos (0.0 a 1.0)
+6. summary máximo 60 palabras
+7. entities solo con tipos: PERSON, ORG, DATE, LOCATION, OTHER
+8. actions solo si son acciones explícitas mencionadas o claramente inferidas
+
+CONTEXTO DEL DOMINIO: {domain}
+
+FORMATO DE SALIDA (JSON válido, sin markdown):
 {{
-  "summary": "...",
-  "entities": [{{"name": "...", "type": "PERSON|ORG|DATE|LOCATION|OTHER"}}],
-  "actions": ["..."],
-  "confidence": 0.0,
-  "needs_clarification": true,
-  "clarifying_questions": ["..."]
+  "summary": "Resumen claro del contenido, máximo 60 palabras",
+  "entities": [
+    {{"name": "nombre", "type": "PERSON|ORG|DATE|LOCATION|OTHER"}},
+    ...
+  ],
+  "actions": ["acción 1", "acción 2"],
+  "confidence": 0.85,
+  "needs_clarification": false,
+  "clarifying_questions": []
 }}
 
-TEXTO:
+POLÍTICA DE ACLARACIÓN:
+- needs_clarification = true SI: falta fecha exacta, responsable, ubicación específica, detalles cruciales
+- needs_clarification = true SI: ambigüedad explícita ("próxima semana", "alguien", "posiblemente")
+- needs_clarification = false SI: todos los elementos clave están presentes y definidos
+
+TEXTO A ANALIZAR:
 {text}
 
-DOMINIO:
-{domain}
+RESPUESTA (SOLO JSON, sin explicación adicional):
 """
 
     try:
@@ -119,7 +151,7 @@ DOMINIO:
         response = client.chat.completions.create(
             model=model_name,
             messages=[{"role": "user", "content": prompt}],
-            temperature=0
+            temperature=0  # Temperatura 0 para consistencia
         )
         return response.choices[0].message.content
     except Exception:
